@@ -2,6 +2,7 @@ package cn.exrick.xboot.modules.base.controller.manage;
 
 import cn.exrick.xboot.common.constant.CommonConstant;
 import cn.exrick.xboot.common.exception.XbootException;
+import cn.exrick.xboot.common.redis.RedisTemplateHelper;
 import cn.exrick.xboot.common.utils.CommonUtil;
 import cn.exrick.xboot.common.utils.HibernateProxyTypeAdapter;
 import cn.exrick.xboot.common.utils.ResultUtil;
@@ -31,6 +32,7 @@ import org.springframework.web.bind.annotation.*;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 
 
 /**
@@ -60,6 +62,9 @@ public class DepartmentController {
     private StringRedisTemplate redisTemplate;
 
     @Autowired
+    private RedisTemplateHelper redisTemplateHelper;
+
+    @Autowired
     private SecurityUtil securityUtil;
 
     @RequestMapping(value = "/getByParentId/{parentId}",method = RequestMethod.GET)
@@ -78,7 +83,7 @@ public class DepartmentController {
         list = departmentService.findByParentIdOrderBySortOrder(parentId, openDataFilter);
         list = setInfo(list);
         redisTemplate.opsForValue().set(key,
-                new GsonBuilder().registerTypeAdapterFactory(HibernateProxyTypeAdapter.FACTORY).create().toJson(list));
+                new GsonBuilder().registerTypeAdapterFactory(HibernateProxyTypeAdapter.FACTORY).create().toJson(list), 15L, TimeUnit.DAYS);
         return new ResultUtil<List<Department>>().setData(list);
     }
 
@@ -89,7 +94,7 @@ public class DepartmentController {
         Department d = departmentService.save(department);
         // 同步该节点缓存
         User u = securityUtil.getCurrUser();
-        Set<String> keys = redisTemplate.keys("department::"+department.getParentId()+":*");
+        Set<String> keys = redisTemplateHelper.keys("department::"+department.getParentId()+":*");
         redisTemplate.delete(keys);
         // 如果不是添加的一级 判断设置上级为父节点标识
         if(!CommonConstant.PARENT_ID.equals(department.getParentId())){
@@ -98,57 +103,65 @@ public class DepartmentController {
                 parent.setIsParent(true);
                 departmentService.update(parent);
                 // 更新上级节点的缓存
-                Set<String> keysParent = redisTemplate.keys("department::"+parent.getParentId()+":*");
+                Set<String> keysParent = redisTemplateHelper.keys("department::"+parent.getParentId()+":*");
                 redisTemplate.delete(keysParent);
             }
         }
         return ResultUtil.success("添加成功");
     }
 
-    @RequestMapping(value = "/edit",method = RequestMethod.POST)
+    @RequestMapping(value = "/edit", method = RequestMethod.POST)
     @ApiOperation(value = "编辑")
     public Result<Object> edit(Department department,
                                @RequestParam(required = false) String[] mainHeader,
                                @RequestParam(required = false) String[] viceHeader){
 
+        Department old = departmentService.get(department.getId());
         Department d = departmentService.update(department);
         // 先删除原数据
         departmentHeaderService.deleteByDepartmentId(department.getId());
-        for(String id:mainHeader){
-            DepartmentHeader dh = new DepartmentHeader();
-            dh.setUserId(id);
-            dh.setDepartmentId(d.getId());
-            dh.setType(CommonConstant.HEADER_TYPE_MAIN);
-            departmentHeaderService.save(dh);
+        List<DepartmentHeader> headers = new ArrayList<>();
+        if(mainHeader!=null){
+            for(String id : mainHeader){
+                DepartmentHeader dh = new DepartmentHeader().setUserId(id).setDepartmentId(d.getId())
+                        .setType(CommonConstant.HEADER_TYPE_MAIN);
+                headers.add(dh);
+            }
         }
-        for(String id:viceHeader){
-            DepartmentHeader dh = new DepartmentHeader();
-            dh.setUserId(id);
-            dh.setDepartmentId(d.getId());
-            dh.setType(CommonConstant.HEADER_TYPE_VICE);
-            departmentHeaderService.save(dh);
+        if(viceHeader!=null){
+            for(String id:viceHeader){
+                DepartmentHeader dh = new DepartmentHeader().setUserId(id).setDepartmentId(d.getId())
+                        .setType(CommonConstant.HEADER_TYPE_VICE);
+                headers.add(dh);
+            }
+        }
+        // 批量保存
+        departmentHeaderService.saveOrUpdateAll(headers);
+        // 若修改了部门名称
+        if(!old.getTitle().equals(department.getTitle())){
+            userService.updateDepartmentTitle(department.getId(), department.getTitle());
+            // 删除所有用户缓存
+            Set<String> keysUser = redisTemplateHelper.keys("user:" + "*");
+            redisTemplate.delete(keysUser);
         }
         // 手动删除所有部门缓存
-        Set<String> keys = redisTemplate.keys("department:" + "*");
+        Set<String> keys = redisTemplateHelper.keys("department:" + "*");
         redisTemplate.delete(keys);
-        // 删除所有用户缓存
-        Set<String> keysUser = redisTemplate.keys("user:" + "*");
-        redisTemplate.delete(keysUser);
         return ResultUtil.success("编辑成功");
     }
 
-    @RequestMapping(value = "/delByIds/{ids}",method = RequestMethod.DELETE)
+    @RequestMapping(value = "/delByIds", method = RequestMethod.POST)
     @ApiOperation(value = "批量通过id删除")
-    public Result<Object> delByIds(@PathVariable String[] ids){
+    public Result<Object> delByIds(@RequestParam String[] ids){
 
         for(String id : ids){
             deleteRecursion(id, ids);
         }
         // 手动删除所有部门缓存
-        Set<String> keys = redisTemplate.keys("department:" + "*");
+        Set<String> keys = redisTemplateHelper.keys("department:" + "*");
         redisTemplate.delete(keys);
         // 删除数据权限缓存
-        Set<String> keysUserRoleData = redisTemplate.keys("userRole::depIds:" + "*");
+        Set<String> keysUserRoleData = redisTemplateHelper.keys("userRole::depIds:" + "*");
         redisTemplate.delete(keysUserRoleData);
         return ResultUtil.success("批量通过id删除数据成功");
     }

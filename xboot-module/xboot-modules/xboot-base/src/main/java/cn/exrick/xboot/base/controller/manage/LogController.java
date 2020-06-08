@@ -29,7 +29,7 @@ import org.springframework.web.bind.annotation.*;
 @Transactional
 public class LogController{
 
-    @Value("${xboot.logRecord.es}")
+    @Value("${xboot.logRecord.es:false}")
     private Boolean esRecord;
 
     @Autowired
@@ -54,9 +54,9 @@ public class LogController{
         }
     }
 
-    @RequestMapping(value = "/delByIds/{ids}", method = RequestMethod.DELETE)
+    @RequestMapping(value = "/delByIds", method = RequestMethod.POST)
     @ApiOperation(value = "批量删除")
-    public Result<Object> delByIds(@PathVariable String[] ids){
+    public Result<Object> delByIds(@RequestParam String[] ids){
 
         for(String id : ids){
             if(esRecord){
@@ -68,7 +68,7 @@ public class LogController{
         return ResultUtil.success("删除成功");
     }
 
-    @RequestMapping(value = "/delAll", method = RequestMethod.DELETE)
+    @RequestMapping(value = "/delAll", method = RequestMethod.POST)
     @ApiOperation(value = "全部删除")
     public Result<Object> delAll(){
 

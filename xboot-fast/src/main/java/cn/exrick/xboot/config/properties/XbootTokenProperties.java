@@ -15,10 +15,10 @@ public class XbootTokenProperties {
     /**
      * 使用redis存储token
      */
-    private Boolean redis = false;
+    private Boolean redis = true;
 
     /**
-     * 单点登陆
+     * 单设备登陆
      */
     private Boolean sdl = true;
 

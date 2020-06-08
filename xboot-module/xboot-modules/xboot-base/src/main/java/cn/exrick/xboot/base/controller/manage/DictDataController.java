@@ -58,7 +58,7 @@ public class DictDataController{
 
         Dict dict = dictService.findByType(type);
         if (dict == null) {
-            return ResultUtil.error("字典类型Type不存在");
+            return ResultUtil.error("字典类型 "+ type +" 不存在");
         }
         List<DictData> list = dictDataService.findByDictId(dict.getId());
         return ResultUtil.data(list);
@@ -89,9 +89,9 @@ public class DictDataController{
         return ResultUtil.success("编辑成功");
     }
 
-    @RequestMapping(value = "/delByIds/{ids}", method = RequestMethod.DELETE)
+    @RequestMapping(value = "/delByIds", method = RequestMethod.POST)
     @ApiOperation(value = "批量通过id删除")
-    public Result<Object> delByIds(@PathVariable String[] ids){
+    public Result<Object> delByIds(@RequestParam String[] ids){
 
         for(String id : ids){
             DictData dictData = dictDataService.get(id);
